@@ -11,7 +11,7 @@ from firebase_admin import credentials, firestore
 
 # --- এনভায়রনমেন্ট কনফিগারেশন ---
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "8782856209:AAFyDqj1owGHut0ivuobBJxyg9j2PXpNrW4")
-ADMIN_ID = int(os.environ.get("ADMIN_ID", "6670461311") 
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "6670461311") )
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 fake = Faker()
