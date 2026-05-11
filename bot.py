@@ -7,6 +7,7 @@ import io
 import threading
 import requests
 from datetime import datetime, timezone
+from flask import Flask
 
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -18,14 +19,14 @@ from firebase_admin import credentials, firestore
 # ==========================================
 # 1. CONFIGURATION & SETUP
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8782856209:AAFyDqj1owGHut0ivuobBJxyg9j2PXpNrW4")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8782856209:AAFyDqj1owGHut0ivuobBJxyg9j2PXpNrW4") # আপনার বটের টোকেন
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "6670461311"))
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 try:
     BOT_USERNAME = bot.get_me().username
 except:
-    BOT_USERNAME = "myinstatask_bot"
+    BOT_USERNAME = "YourBotUsername"
 
 fake = Faker()
 user_sessions = {}
@@ -422,11 +423,27 @@ def user_ban_handler(call):
     bot.edit_message_text(f"✅ User {uid} is {action}ned.", call.message.chat.id, call.message.message_id)
 
 # ==========================================
-# 8. START BOT
+# 8. FLASK WEB SERVER & RUN BOT
 # ==========================================
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return "🚀 Instagram Micro-Job Bot is Live and Running Successfully!"
+
+def run_bot_polling():
+    print("🚀 Premium Bot is running...")
+    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+
 if __name__ == "__main__":
+    # ১. অটো-চেকার ব্যাকগ্রাউন্ডে চালু করা
     checker = threading.Thread(target=auto_checker_thread, daemon=True)
     checker.start()
     
-    print("🚀 Premium Bot & Auto-Checker is running...")
-    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+    # ২. টেলিগ্রাম বট ব্যাকগ্রাউন্ডে চালু করা
+    bot_thread = threading.Thread(target=run_bot_polling, daemon=True)
+    bot_thread.start()
+    
+    # ৩. Flask ওয়েব সার্ভার মেইন থ্রেডে চালু করা (যাতে Render খুশি থাকে)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
