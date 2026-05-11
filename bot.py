@@ -19,14 +19,14 @@ from firebase_admin import credentials, firestore
 # ==========================================
 # 1. CONFIGURATION & SETUP
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8782856209:AAFyDqj1owGHut0ivuobBJxyg9j2PXpNrW4") # আপনার বটের টোকেন
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8782856209:AAFyDqj1owGHut0ivuobBJxyg9j2PXpNrW4")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "6670461311"))
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 try:
     BOT_USERNAME = bot.get_me().username
 except:
-    BOT_USERNAME = "@myinstatask_bot"
+    BOT_USERNAME = "YourBotUsername"
 
 fake = Faker()
 user_sessions = {}
@@ -48,12 +48,12 @@ except Exception as e:
     print(f"❌ Firebase Error: {e}")
 
 # ==========================================
-# 2. DATABASE FUNCTIONS
+# 2. DATABASE & SETTINGS
 # ==========================================
 def init_settings():
     settings_ref = db.collection('settings').document('app_settings')
     if not settings_ref.get().exists:
-        settings_ref.set({'task_rate': 3.00, 'ref_commission': 1.00, 'check_delay_minutes': 5})
+        settings_ref.set({'task_rate': 5.00, 'ref_commission': 1.00, 'check_delay_minutes': 5})
 
 init_settings()
 
@@ -74,18 +74,38 @@ def init_user(chat_id, referrer_id=None):
             ref_ref = db.collection('users').document(str(referrer_id))
             if ref_ref.get().exists:
                 ref_com = get_settings().get('ref_commission', 1.00)
-                ref_ref.update({
-                    'referred_users': firestore.Increment(1),
-                    'balance': firestore.Increment(ref_com),
-                    'referral_earnings': firestore.Increment(ref_com)
-                })
+                ref_ref.update({'referred_users': firestore.Increment(1), 'balance': firestore.Increment(ref_com), 'referral_earnings': firestore.Increment(ref_com)})
 
 def check_ban(chat_id):
     user_doc = db.collection('users').document(str(chat_id)).get()
     return user_doc.exists and user_doc.to_dict().get('banned', False)
 
 # ==========================================
-# 3. KEYBOARDS & MENUS
+# 3. SMART CHECKER LOGIC (ANTI-IP BLOCK & FAKE)
+# ==========================================
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+]
+
+def check_ig_alive(username):
+    url = f"https://www.instagram.com/{username}/"
+    headers = {"User-Agent": random.choice(USER_AGENTS), "Accept-Language": "en-US,en;q=0.9"}
+    try:
+        response = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+        if response.status_code == 404: return False
+        if response.status_code == 200:
+            html = response.text.lower()
+            if "accounts/login" in response.url: return None # IP Blocked -> Manual
+            if "sorry, this page isn't available" in html or "page not found" in html: return False # Fake/Banned -> Reject
+            if username.lower() in html: return True # Valid -> Approve
+        return None
+    except: return None
+
+# ==========================================
+# 4. KEYBOARDS & MENUS
 # ==========================================
 def main_menu(is_admin=False):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
@@ -95,315 +115,249 @@ def main_menu(is_admin=False):
     if is_admin: markup.add(KeyboardButton("⚙️ Admin Panel"))
     return markup
 
-def task_menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add(KeyboardButton("🔐 Instagram 2FA"), KeyboardButton("❌ Cancel"))
-    return m
-
-def start_action_menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add(KeyboardButton("▶️ Start"), KeyboardButton("❌ Cancel"))
-    return m
-
-def step_2fa_menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add(KeyboardButton("🔑 2FA Input"), KeyboardButton("❌ Cancel"))
-    return m
-
-def final_menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add(KeyboardButton("✅ Account Registered"), KeyboardButton("❌ Cancel"))
-    return m
-
 # ==========================================
-# 4. INSTAGRAM ACCOUNT CHECKER & NOTIFIER
+# 5. ADMIN NOTIFICATION & MANUAL OTP
 # ==========================================
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15",
-    "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0"
-]
-
-def check_ig_alive(username):
-    url = f"https://www.instagram.com/{username}/"
-    headers = {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Connection": "keep-alive"
-    }
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200: return True
-        elif response.status_code == 404: return False
-        else: return None
-    except:
-        return None
-
-def notify_admin_for_manual_check(data, doc_id):
+def notify_admin_manual(data, doc_id):
     username = data.get('username')
     user_id = data.get('created_by')
-    
-    msg = f"⚠️ <b>ম্যানুয়াল রিভিউ প্রয়োজন!</b>\n\n" \
-          f"👤 User ID: <code>{user_id}</code>\n" \
-          f"🆔 Username: <code>{username}</code>\n" \
-          f"🔑 Password: <code>{data.get('password')}</code>\n" \
-          f"🔐 2FA: <code>{data.get('2fa_secret')}</code>\n\n" \
-          f"অটো-চেকার ব্যর্থ হয়েছে। ম্যানুয়ালি চেক করুন।"
-    
-    markup = InlineKeyboardMarkup()
+    secret = data.get('2fa_secret')
+    msg = f"⚠️ <b>ম্যানুয়াল রিভিউ প্রয়োজন!</b>\n\n👤 User ID: <code>{user_id}</code>\n🆔 Username: <code>{username}</code>\n🔑 Pass: <code>{data.get('password')}</code>\n🔐 2FA: <code>{secret}</code>"
+    markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
         InlineKeyboardButton("✅ Approve", callback_data=f"man_app_{doc_id}_{user_id}"),
-        InlineKeyboardButton("❌ Reject", callback_data=f"man_rej_{doc_id}_{user_id}")
+        InlineKeyboardButton("❌ Reject", callback_data=f"man_rej_{doc_id}_{user_id}"),
+        InlineKeyboardButton("🔑 Get OTP", callback_data=f"man_otp_{secret}")
     )
-    try:
-        bot.send_message(ADMIN_ID, msg, reply_markup=markup)
-    except Exception as e:
-        print(f"Admin Notification Error: {e}")
+    try: bot.send_message(ADMIN_ID, msg, reply_markup=markup)
+    except: pass
 
 # ==========================================
-# 5. BACKGROUND AUTO-CHECKER THREAD
+# 6. BACKGROUND CHECKER THREAD
 # ==========================================
 def auto_checker_thread():
     while True:
         try:
             settings = get_settings()
-            delay_mins = settings.get('check_delay_minutes', 5)
-            task_rate = settings.get('task_rate', 3.00)
+            delay = settings.get('check_delay_minutes', 5)
             now = datetime.now(timezone.utc)
-            
             accounts = db.collection('instagram_accounts').where('status', '==', 'unchecked').stream()
             
             for acc in accounts:
                 data = acc.to_dict()
-                created_time = data.get('timestamp')
-                if not created_time: continue
+                created_at = data.get('timestamp')
+                if not created_at: continue
                 
-                time_diff_minutes = (now - created_time).total_seconds() / 60.0
-                
-                if time_diff_minutes >= delay_mins:
-                    user_id = data.get('created_by')
-                    username = data.get('username')
+                if (now - created_at).total_seconds() / 60.0 >= delay:
+                    status = check_ig_alive(data['username'])
+                    user_id = data['created_by']
                     
-                    is_valid = check_ig_alive(username)
-                    
-                    if is_valid is None:
+                    if status is None:
                         db.collection('instagram_accounts').document(acc.id).update({'status': 'pending_manual'})
-                        notify_admin_for_manual_check(data, acc.id)
-                        try:
-                            bot.send_message(user_id, f"⏳ আপনার একাউন্ট <code>{username}</code> নেটওয়ার্ক সমস্যার কারণে অটো-চেক করা সম্ভব হয়নি। এটি <b>ম্যানুয়াল রিভিউতে</b> পাঠানো হয়েছে।")
+                        notify_admin_manual(data, acc.id)
+                        try: bot.send_message(user_id, f"⏳ <code>{data['username']}</code> অটো-চেক সম্ভব হয়নি, ম্যানুয়াল রিভিউতে আছে।")
                         except: pass
-                        continue 
-                    
-                    if is_valid:
+                    elif status:
+                        rate = settings.get('task_rate', 5.00)
                         db.collection('instagram_accounts').document(acc.id).update({'status': 'approved'})
-                        db.collection('users').document(user_id).update({
-                            'balance': firestore.Increment(task_rate),
-                            'total_earned': firestore.Increment(task_rate),
-                            'approved': firestore.Increment(1)
-                        })
-                        msg = f"✅ <b>Report approved, +{task_rate} BDT</b>\n✉ Comment: Account <code>{username}</code> is live."
+                        db.collection('users').document(user_id).update({'balance': firestore.Increment(rate), 'total_earned': firestore.Increment(rate), 'approved': firestore.Increment(1)})
+                        try: bot.send_message(user_id, f"✅ <b>Report approved! +{rate} BDT</b>\n✉ Comment: Account <code>{data['username']}</code> is live.")
+                        except: pass
                     else:
                         db.collection('instagram_accounts').document(acc.id).update({'status': 'rejected'})
                         db.collection('users').document(user_id).update({'rejected': firestore.Increment(1)})
-                        msg = f"❌ <b>Report rejected.</b>\n✉ Comment: Account <code>{username}</code> is suspended."
-                    
-                    try: bot.send_message(user_id, msg)
-                    except: pass
-        except Exception as e:
-            print(f"Checker Error: {e}")
-            
+                        try: bot.send_message(user_id, f"❌ <b>Report rejected.</b>\n✉ Comment: Account <code>{data['username']}</code> not found/suspended.")
+                        except: pass
+        except Exception as e: print(f"Checker Error: {e}")
         time.sleep(60)
 
 # ==========================================
-# 6. USER COMMANDS & WORKFLOW
+# 7. USER COMMANDS & WORKFLOW
 # ==========================================
 @bot.message_handler(commands=['start'])
-def send_welcome(message):
-    chat_id = message.chat.id
-    if check_ban(chat_id): return bot.send_message(chat_id, "⛔ আপনার একাউন্ট ব্যান করা হয়েছে।")
-    
-    text = message.text.split()
-    referrer = text[1] if len(text) > 1 else None
-    init_user(chat_id, referrer)
-    
-    bot.send_message(chat_id, "স্বাগতম! কাজ শুরু করতে নিচের বাটন ব্যবহার করুন।", reply_markup=main_menu(chat_id == ADMIN_ID))
+def welcome(message):
+    uid = str(message.chat.id)
+    if check_ban(uid): return bot.send_message(uid, "⛔ আপনার একাউন্ট ব্যান করা হয়েছে।")
+    ref = message.text.split()[1] if len(message.text.split()) > 1 else None
+    init_user(uid, ref)
+    bot.send_message(uid, "স্বাগতম!", reply_markup=main_menu(message.chat.id == ADMIN_ID))
 
 @bot.message_handler(func=lambda m: True)
-def main_handler(message):
-    chat_id = message.chat.id
-    if check_ban(chat_id): return
-    text = message.text
+def handle_all(message):
+    uid, text = str(message.chat.id), message.text
+    if check_ban(uid): return
+    settings = get_settings()
 
-    if text == "👤 Profile":
-        user_data = db.collection('users').document(str(chat_id)).get().to_dict()
-        settings = get_settings()
-        msg = f"👤 <b>প্রোফাইল</b>\n\n📥 জমা দিয়েছেন: {user_data.get('submitted', 0)}\n✅ অনুমোদিত: {user_data.get('approved', 0)}\n❌ বাতিল: {user_data.get('rejected', 0)}\n\n💵 প্রতি কাজ: {settings.get('task_rate', 0)} BDT\n💰 মোট আয়: {user_data.get('total_earned', 0):.2f} BDT\n\n📤 উত্তোলন: {user_data.get('withdrawn', 0):.2f} BDT\n\n💰 <b>ব্যালেন্স: {user_data.get('balance', 0):.2f} BDT</b>"
-        bot.send_message(chat_id, msg)
+    if text == "🚀 Start Task":
+        m = ReplyKeyboardMarkup(resize_keyboard=True).add("🔐 Instagram 2FA", "❌ Cancel")
+        bot.send_message(uid, "পরবর্তী ধাপে যেতে ক্লিক করুন:", reply_markup=m)
+    
+    elif text == "👤 Profile":
+        u = db.collection('users').document(uid).get().to_dict()
+        msg = f"👤 <b>প্রোফাইল</b>\n\n📥 জমা দিয়েছেন: {u.get('submitted',0)}\n✅ অনুমোদিত: {u.get('approved',0)}\n❌ বাতিল: {u.get('rejected',0)}\n\n💵 প্রতি কাজ: {settings.get('task_rate', 0)} BDT\n💰 মোট আয়: {u.get('total_earned',0):.2f} BDT\n\n📤 উত্তোলন: {u.get('withdrawn',0):.2f} BDT\n\n💰 <b>ব্যালেন্স: {u.get('balance',0):.2f} BDT</b>"
+        bot.send_message(uid, msg)
 
     elif text == "🏆 Top 10":
         users = db.collection('users').order_by('approved', direction=firestore.Query.DESCENDING).limit(10).stream()
         msg = "🏆 <b>টপ ১০ ইউজার</b>\n\n"
         for idx, u in enumerate(users, 1): msg += f"{idx}. ID: <code>{u.id}</code> - ✅ {u.to_dict().get('approved', 0)} কাজ\n"
-        bot.send_message(chat_id, msg)
+        bot.send_message(uid, msg)
 
     elif text == "👥 Referral":
-        user_data = db.collection('users').document(str(chat_id)).get().to_dict()
-        settings = get_settings()
-        ref_link = f"https://t.me/{BOT_USERNAME}?start={chat_id}"
-        msg = f"👥 <b>রেফারেল প্রোগ্রাম</b>\n\nপ্রতি রেফারে: {settings.get('ref_commission', 0)} BDT\nমোট রেফার: {user_data.get('referred_users', 0)} জন\nরেফার আয়: {user_data.get('referral_earnings', 0):.2f} BDT\n\n🔗 <b>লিংক:</b>\n<code>{ref_link}</code>"
-        bot.send_message(chat_id, msg)
+        u = db.collection('users').document(uid).get().to_dict()
+        ref_link = f"https://t.me/{BOT_USERNAME}?start={uid}"
+        msg = f"👥 <b>রেফারেল প্রোগ্রাম</b>\n\nপ্রতি রেফারে: {settings.get('ref_commission',0)} BDT\nমোট রেফার: {u.get('referred_users',0)} জন\nরেফার আয়: {u.get('referral_earnings',0):.2f} BDT\n\n🔗 <b>লিংক:</b>\n<code>{ref_link}</code>"
+        bot.send_message(uid, msg)
 
-    elif text == "🌐 Language": bot.send_message(chat_id, "🌐 ভাষা পরিবর্তনের কাজ চলছে।")
+    elif text == "🌐 Language":
+        bot.send_message(uid, "🌐 ভাষা পরিবর্তনের কাজ চলছে।")
 
-    elif text == "⚙️ Admin Panel" and chat_id == ADMIN_ID:
-        markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(InlineKeyboardButton("📄 Users", callback_data="adm_users"), InlineKeyboardButton("🔍 Search", callback_data="adm_search"))
-        markup.add(InlineKeyboardButton("📊 Stats", callback_data="adm_stats"), InlineKeyboardButton("💰 Rates", callback_data="adm_rates"))
-        markup.add(InlineKeyboardButton("⏳ Timer", callback_data="adm_timer"), InlineKeyboardButton("📢 Notice", callback_data="adm_notice"))
-        markup.add(InlineKeyboardButton("📥 Download Report", callback_data="adm_ig"))
-        bot.send_message(chat_id, "🛠️ <b>অ্যাডমিন ড্যাশবোর্ড</b>", reply_markup=markup)
-
-    elif text == "🚀 Start Task": bot.send_message(chat_id, "পরবর্তী ধাপে যান:", reply_markup=task_menu())
+    elif text == "⚙️ Admin Panel" and message.chat.id == ADMIN_ID:
+        m = InlineKeyboardMarkup(row_width=2)
+        m.add(InlineKeyboardButton("📄 Users", callback_data="adm_users"), InlineKeyboardButton("🔍 Search", callback_data="adm_search"))
+        m.add(InlineKeyboardButton("📊 Stats", callback_data="adm_stats"), InlineKeyboardButton("💰 Rates", callback_data="adm_rates"))
+        m.add(InlineKeyboardButton("⏳ Timer", callback_data="adm_timer"), InlineKeyboardButton("📢 Notice", callback_data="adm_notice"))
+        m.add(InlineKeyboardButton("📥 Download Report", callback_data="adm_ig"))
+        bot.send_message(uid, "🛠️ <b>অ্যাডমিন ড্যাশবোর্ড</b>", reply_markup=m)
 
     elif text == "🔐 Instagram 2FA":
-        rules = "📌 <b>রুলস:</b>\n১. ডিটেইলস কপি করে একাউন্ট খুলুন।\n২. 2FA সেটআপ করুন।\n৩. ডাটা সাবমিট করুন।"
-        bot.send_message(chat_id, rules, reply_markup=start_action_menu())
+        bot.send_message(uid, "📌 <b>রুলস:</b> ডিটেইলস কপি করে একাউন্ট খুলুন এবং 2FA সেট করুন।", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("▶️ Start", "❌ Cancel"))
 
     elif text == "▶️ Start":
         first, last = fake.first_name(), fake.last_name()
-        username = f"{first.lower()}_{last.lower()}{random.randint(1000, 99999)}"[:18]
-        password = ''.join(random.choices(string.ascii_letters + string.digits + "@#$", k=12))
-        name = f"{first} {last}"
-        user_sessions[chat_id] = {'name': name, 'username': username, 'password': password}
-        msg = f"✅ <b>আপনার ডিটেইলস</b>:\n\n👤 Name: <code>{name}</code>\n🆔 Username: <code>{username}</code>\n🔑 Password: <code>{password}</code>"
-        bot.send_message(chat_id, msg, reply_markup=step_2fa_menu())
+        un = f"{first.lower()}_{last.lower()}{random.randint(1000,99999)}"[:18]
+        pw = ''.join(random.choices(string.ascii_letters + string.digits + "@#$", k=12))
+        user_sessions[message.chat.id] = {'name': f"{first} {last}", 'username': un, 'password': pw}
+        bot.send_message(uid, f"✅ <b>আপনার ডিটেইলস</b>:\n\n👤 Name: <code>{first} {last}</code>\n🆔 Username: <code>{un}</code>\n🔑 Password: <code>{pw}</code>", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("🔑 2FA Input", "❌ Cancel"))
 
     elif text == "🔑 2FA Input":
-        msg = bot.send_message(chat_id, "ইনস্টাগ্রামের <b>2FA Secret Code</b> দিন:", reply_markup=telebot.types.ReplyKeyboardRemove())
-        bot.register_next_step_handler(msg, process_2fa_secret)
+        m = bot.send_message(uid, "ইনস্টাগ্রামের <b>2FA Secret Code</b> দিন:", reply_markup=telebot.types.ReplyKeyboardRemove())
+        bot.register_next_step_handler(m, process_2fa_secret)
 
     elif text == "✅ Account Registered":
-        if chat_id in user_sessions and '2fa_secret' in user_sessions[chat_id]:
-            data = user_sessions[chat_id]
+        data = user_sessions.get(message.chat.id)
+        if data and '2fa_secret' in data:
             db.collection('instagram_accounts').document(data['username']).set({
-                'created_by': str(chat_id), 'name': data['name'], 'username': data['username'],
+                'created_by': uid, 'name': data['name'], 'username': data['username'],
                 'password': data['password'], '2fa_secret': data['2fa_secret'], 'status': 'unchecked',
                 'timestamp': datetime.now(timezone.utc)
             })
-            db.collection('users').document(str(chat_id)).update({'submitted': firestore.Increment(1)})
-            settings = get_settings()
-            bot.send_message(chat_id, f"🎉 একাউন্ট সেভ হয়েছে! {settings.get('check_delay_minutes')} মিনিট পর রিপোর্ট আসবে।", reply_markup=main_menu(chat_id == ADMIN_ID))
-            del user_sessions[chat_id]
+            db.collection('users').document(uid).update({'submitted': firestore.Increment(1)})
+            bot.send_message(uid, f"🎉 একাউন্ট সেভ হয়েছে! {settings.get('check_delay_minutes')} মিনিট পর রিপোর্ট আসবে।", reply_markup=main_menu(message.chat.id == ADMIN_ID))
+            del user_sessions[message.chat.id]
         else:
-            bot.send_message(chat_id, "⚠️ সেশন পাওয়া যায়নি।", reply_markup=main_menu(chat_id == ADMIN_ID))
+            bot.send_message(uid, "⚠️ সেশন পাওয়া যায়নি।", reply_markup=main_menu(message.chat.id == ADMIN_ID))
 
     elif text == "❌ Cancel":
-        if chat_id in user_sessions: del user_sessions[chat_id]
-        bot.send_message(chat_id, "ক্যানসেল করা হয়েছে।", reply_markup=main_menu(chat_id == ADMIN_ID))
+        if message.chat.id in user_sessions: del user_sessions[message.chat.id]
+        bot.send_message(uid, "ক্যানসেল করা হয়েছে।", reply_markup=main_menu(message.chat.id == ADMIN_ID))
 
 def process_2fa_secret(message):
-    chat_id = message.chat.id
-    secret = message.text.replace(" ", "")
+    uid = message.chat.id
+    sec = message.text.replace(" ", "")
     try:
-        otp_code = pyotp.TOTP(secret).now()
-        user_sessions.setdefault(chat_id, {})['2fa_secret'] = secret
-        bot.send_message(chat_id, f"✅ <b>OTP জেনারেট হয়েছে</b>:\n\n<code>{otp_code}</code>", reply_markup=final_menu())
+        otp = pyotp.TOTP(sec).now()
+        user_sessions.setdefault(uid, {})['2fa_secret'] = sec
+        bot.send_message(uid, f"✅ <b>OTP জেনারেট হয়েছে</b>:\n\n<code>{otp}</code>", reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add("✅ Account Registered", "❌ Cancel"))
     except:
-        msg = bot.send_message(chat_id, "❌ Secret Code ভুল। আবার দিন:")
-        bot.register_next_step_handler(msg, process_2fa_secret)
+        m = bot.send_message(uid, "❌ Secret Code ভুল। আবার দিন:")
+        bot.register_next_step_handler(m, process_2fa_secret)
 
 # ==========================================
-# 7. ADMIN HANDLERS & MANUAL REVIEW
+# 8. ADMIN CALLBACKS & FULL DASHBOARD
 # ==========================================
-@bot.callback_query_handler(func=lambda call: call.data.startswith("man_"))
-def manual_review_handler(call):
+@bot.callback_query_handler(func=lambda call: call.data.startswith("man_") or call.data.startswith("adm_") or call.data.startswith("usr_"))
+def all_callbacks(call):
     if call.message.chat.id != ADMIN_ID: return
-    parts = call.data.split('_')
-    action, doc_id, user_id = parts[1], parts[2], parts[3]
-    task_rate = get_settings().get('task_rate', 3.00)
+    data = call.data
 
-    if action == "app":
-        db.collection('instagram_accounts').document(doc_id).update({'status': 'approved'})
-        db.collection('users').document(user_id).update({
-            'balance': firestore.Increment(task_rate), 'total_earned': firestore.Increment(task_rate), 'approved': firestore.Increment(1)
-        })
-        try: bot.send_message(user_id, f"✅ <b>Report approved (Manual), +{task_rate} BDT</b>\nএকাউন্টটি অনুমোদিত হয়েছে।")
-        except: pass
-        bot.edit_message_text(f"✅ Approved: {doc_id}", call.message.chat.id, call.message.message_id)
+    # --- Manual Review (OTP, Approve, Reject) ---
+    if data.startswith("man_"):
+        parts = data.split('_')
+        action = parts[1]
+        
+        if action == "otp":
+            try: bot.answer_callback_query(call.id, f"Current OTP: {pyotp.TOTP(parts[2]).now()}", show_alert=True)
+            except: bot.answer_callback_query(call.id, "Invalid Secret!", show_alert=True)
+            return
 
-    elif action == "rej":
-        db.collection('instagram_accounts').document(doc_id).update({'status': 'rejected'})
-        db.collection('users').document(user_id).update({'rejected': firestore.Increment(1)})
-        try: bot.send_message(user_id, f"❌ <b>Report rejected (Manual)</b>\nএকাউন্টটি বাতিল করা হয়েছে।")
-        except: pass
-        bot.edit_message_text(f"❌ Rejected: {doc_id}", call.message.chat.id, call.message.message_id)
+        doc_id, user_id = parts[2], parts[3]
+        rate = get_settings().get('task_rate', 5.00)
 
-@bot.callback_query_handler(func=lambda call: call.data.startswith("adm_"))
-def admin_callbacks(call):
-    chat_id = call.message.chat.id
-    if chat_id != ADMIN_ID: return
+        if action == "app":
+            db.collection('instagram_accounts').document(doc_id).update({'status': 'approved'})
+            db.collection('users').document(user_id).update({'balance': firestore.Increment(rate), 'total_earned': firestore.Increment(rate), 'approved': firestore.Increment(1)})
+            try: bot.send_message(user_id, f"✅ <b>Report approved (Manual), +{rate} BDT</b>")
+            except: pass
+            bot.edit_message_text(f"✅ Approved: {doc_id}", call.message.chat.id, call.message.message_id)
+        elif action == "rej":
+            db.collection('instagram_accounts').document(doc_id).update({'status': 'rejected'})
+            db.collection('users').document(user_id).update({'rejected': firestore.Increment(1)})
+            try: bot.send_message(user_id, "❌ <b>Report rejected (Manual)</b>")
+            except: pass
+            bot.edit_message_text(f"❌ Rejected: {doc_id}", call.message.chat.id, call.message.message_id)
 
-    if call.data == "adm_users":
+    # --- Admin Panel Features ---
+    elif data == "adm_users":
         content = "ID | Balance | Banned\n" + "-"*20 + "\n"
-        for u in db.collection('users').stream():
-            content += f"{u.id} | {u.to_dict().get('balance',0)} | {u.to_dict().get('banned',False)}\n"
-        bio = io.BytesIO(content.encode('utf-8'))
-        bio.name = "users.txt"
-        bot.send_document(chat_id, bio)
+        for u in db.collection('users').stream(): content += f"{u.id} | {u.to_dict().get('balance',0)} | {u.to_dict().get('banned',False)}\n"
+        bio = io.BytesIO(content.encode('utf-8')); bio.name = "users.txt"
+        bot.send_document(ADMIN_ID, bio)
 
-    elif call.data == "adm_ig":
+    elif data == "adm_ig":
         content = "Username,Password,2FA,Status,UserID\n"
         for a in db.collection('instagram_accounts').stream():
             d = a.to_dict()
             content += f"{d.get('username')},{d.get('password')},{d.get('2fa_secret')},{d.get('status')},{d.get('created_by')}\n"
-        bio = io.BytesIO(content.encode('utf-8'))
-        bio.name = "reports.csv"
-        bot.send_document(chat_id, bio)
+        bio = io.BytesIO(content.encode('utf-8')); bio.name = "reports.csv"
+        bot.send_document(ADMIN_ID, bio)
 
-    elif call.data == "adm_stats":
+    elif data == "adm_stats":
         u_count = len(list(db.collection('users').stream()))
         ig_count = len(list(db.collection('instagram_accounts').stream()))
-        bot.send_message(chat_id, f"📊 <b>পরিসংখ্যান</b>\n\nইউজার: {u_count}\nজমাকৃত কাজ: {ig_count}")
+        bot.send_message(ADMIN_ID, f"📊 <b>পরিসংখ্যান</b>\n\nমোট ইউজার: {u_count}\nমোট কাজ: {ig_count}")
 
-    elif call.data == "adm_rates":
-        msg = bot.send_message(chat_id, "টাস্ক রেট এবং রেফার রেট স্পেস দিয়ে দিন (উদাঃ 3.5 1.5):")
-        bot.register_next_step_handler(msg, lambda m: update_db_setting(m, 'rates'))
+    elif data == "adm_rates":
+        m = bot.send_message(ADMIN_ID, "Task Rate এবং Referral Commission স্পেস দিয়ে লিখুন (উদাঃ 4.5 1.5):")
+        bot.register_next_step_handler(m, lambda msg: admin_updates(msg, 'rates'))
 
-    elif call.data == "adm_timer":
-        msg = bot.send_message(chat_id, "চেকার ডিলে টাইম দিন (মিনিটে):")
-        bot.register_next_step_handler(msg, lambda m: update_db_setting(m, 'timer'))
+    elif data == "adm_timer":
+        m = bot.send_message(ADMIN_ID, "অটো-চেকার ডিলে টাইম মিনিটে লিখুন (উদাঃ 5):")
+        bot.register_next_step_handler(m, lambda msg: admin_updates(msg, 'timer'))
 
-    elif call.data == "adm_notice":
-        msg = bot.send_message(chat_id, "নোটিশ লিখুন:")
-        bot.register_next_step_handler(msg, send_global_notice)
-        
-    elif call.data == "adm_search":
-        msg = bot.send_message(chat_id, "Telegram ID দিন:")
-        bot.register_next_step_handler(msg, search_user)
+    elif data == "adm_notice":
+        m = bot.send_message(ADMIN_ID, "নোটিশের টেক্সট লিখুন:")
+        bot.register_next_step_handler(m, lambda msg: admin_updates(msg, 'notice'))
 
-def update_db_setting(message, type):
-    try:
-        if type == 'rates':
+    elif data == "adm_search":
+        m = bot.send_message(ADMIN_ID, "ইউজারের Telegram ID দিন:")
+        bot.register_next_step_handler(m, search_user)
+
+    # --- Ban/Unban System ---
+    elif data.startswith("usr_"):
+        action, uid = data.split('_')[1], data.split('_')[2]
+        db.collection('users').document(uid).update({'banned': action == "ban"})
+        bot.edit_message_text(f"✅ User {uid} is {action}ned.", call.message.chat.id, call.message.message_id)
+
+def admin_updates(message, update_type):
+    if update_type == 'rates':
+        try:
             task, ref = map(float, message.text.split())
             db.collection('settings').document('app_settings').update({'task_rate': task, 'ref_commission': ref})
-            bot.send_message(message.chat.id, f"✅ আপডেট সম্পন্ন!\nTask: {task}, Ref: {ref}")
-        elif type == 'timer':
-            mins = int(message.text)
-            db.collection('settings').document('app_settings').update({'check_delay_minutes': mins})
-            bot.send_message(message.chat.id, f"⏳ টাইমার {mins} মিনিটে সেট করা হয়েছে।")
-    except: bot.send_message(message.chat.id, "❌ ইনপুট ভুল হয়েছে।")
-
-def send_global_notice(message):
-    bot.send_message(message.chat.id, "⏳ পাঠানো হচ্ছে...")
-    count = 0
-    for u in db.collection('users').stream():
+            bot.send_message(ADMIN_ID, f"✅ রেট আপডেট হয়েছে! Task: {task}, Ref: {ref}")
+        except: bot.send_message(ADMIN_ID, "❌ ইনপুট ফরমেট ভুল।")
+    elif update_type == 'timer':
         try:
-            bot.send_message(u.id, f"📢 <b>অ্যাডমিন নোটিশ:</b>\n\n{message.text}")
-            count += 1
-        except: pass
-    bot.send_message(message.chat.id, f"✅ {count} জনকে পাঠানো হয়েছে।")
+            db.collection('settings').document('app_settings').update({'check_delay_minutes': int(message.text)})
+            bot.send_message(ADMIN_ID, f"⏳ টাইমার {message.text} মিনিটে সেট করা হয়েছে।")
+        except: bot.send_message(ADMIN_ID, "❌ শুধু সংখ্যা দিন।")
+    elif update_type == 'notice':
+        bot.send_message(ADMIN_ID, "⏳ নোটিশ পাঠানো হচ্ছে...")
+        count = 0
+        for u in db.collection('users').stream():
+            try: bot.send_message(u.id, f"📢 <b>অ্যাডমিন নোটিশ:</b>\n\n{message.text}"); count += 1
+            except: pass
+        bot.send_message(ADMIN_ID, f"✅ {count} জনকে পাঠানো হয়েছে।")
 
 def search_user(message):
     uid = message.text
@@ -413,37 +367,17 @@ def search_user(message):
         markup = InlineKeyboardMarkup()
         action = "unban" if d.get('banned') else "ban"
         markup.add(InlineKeyboardButton(f"🚫 {action.title()} User", callback_data=f"usr_{action}_{uid}"))
-        bot.send_message(message.chat.id, f"👤 <b>Info ({uid})</b>\n\nBalance: {d.get('balance')}\nBanned: {d.get('banned')}", reply_markup=markup)
-    else: bot.send_message(message.chat.id, "❌ পাওয়া যায়নি।")
-
-@bot.callback_query_handler(func=lambda call: call.data.startswith("usr_"))
-def user_ban_handler(call):
-    action, uid = call.data.split('_')[1], call.data.split('_')[2]
-    db.collection('users').document(uid).update({'banned': action == "ban"})
-    bot.edit_message_text(f"✅ User {uid} is {action}ned.", call.message.chat.id, call.message.message_id)
+        bot.send_message(ADMIN_ID, f"👤 <b>Info ({uid})</b>\n\nBalance: {d.get('balance')}\nTasks: {d.get('submitted')}\nBanned: {d.get('banned')}", reply_markup=markup)
+    else: bot.send_message(ADMIN_ID, "❌ ইউজার পাওয়া যায়নি।")
 
 # ==========================================
-# 8. FLASK WEB SERVER & RUN BOT
+# 9. FLASK SERVER & EXECUTION
 # ==========================================
 app = Flask(__name__)
-
 @app.route('/')
-def index():
-    return "🚀 Instagram Micro-Job Bot is Live and Running Successfully!"
-
-def run_bot_polling():
-    print("🚀 Premium Bot is running...")
-    bot.infinity_polling(timeout=60, long_polling_timeout=60)
+def home(): return "🚀 Instagram Micro-Job Bot is Live!"
 
 if __name__ == "__main__":
-    # ১. অটো-চেকার ব্যাকগ্রাউন্ডে চালু করা
-    checker = threading.Thread(target=auto_checker_thread, daemon=True)
-    checker.start()
-    
-    # ২. টেলিগ্রাম বট ব্যাকগ্রাউন্ডে চালু করা
-    bot_thread = threading.Thread(target=run_bot_polling, daemon=True)
-    bot_thread.start()
-    
-    # ৩. Flask ওয়েব সার্ভার মেইন থ্রেডে চালু করা (যাতে Render খুশি থাকে)
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    threading.Thread(target=auto_checker_thread, daemon=True).start()
+    threading.Thread(target=lambda: bot.infinity_polling(timeout=60, long_polling_timeout=60), daemon=True).start()
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 10000)))
