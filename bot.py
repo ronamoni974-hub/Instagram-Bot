@@ -18,14 +18,14 @@ from firebase_admin import credentials, firestore
 # ==========================================
 # 1. CONFIGURATION & SETUP
 # ==========================================
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "আপনার_বট_টোকেন_দিন")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8782856209:AAFyDqj1owGHut0ivuobBJxyg9j2PXpNrW4")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "6670461311"))
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 try:
     BOT_USERNAME = bot.get_me().username
 except:
-    BOT_USERNAME = "YourBotUsername"
+    BOT_USERNAME = "myinstatask_bot"
 
 fake = Faker()
 user_sessions = {}
