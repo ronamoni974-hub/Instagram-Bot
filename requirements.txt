@@ -3,3 +3,4 @@ Faker
 pyotp
 firebase-admin
 requests
+Flask
