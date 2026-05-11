@@ -26,7 +26,7 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode='HTML')
 try:
     BOT_USERNAME = bot.get_me().username
 except:
-    BOT_USERNAME = "YourBotUsername"
+    BOT_USERNAME = "@myinstatask_bot"
 
 fake = Faker()
 user_sessions = {}
